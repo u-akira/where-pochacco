@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = ".arduino-build/where-pochacco.ino.bin"
+elf = ".arduino-build/where-pochacco.ino.elf"
