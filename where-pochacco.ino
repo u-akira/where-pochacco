@@ -6,6 +6,10 @@
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
+#define START_CURSOR_X 2
+#define START_CURSOR_Y 1
+#define MAX_STAGE_WIDTH 7
+#define MAX_STAGE_HEIGHT 5
 
 const uint8_t POCHACCO_3X3_BMP[] PROGMEM = {
     0xc0, 0x8c, 0x30, 0xe0, 0x58, 0x70, 0xf3, 0x50, 0xf0, 0x70, 0xf9, 0xc0,
@@ -57,21 +61,24 @@ struct StageConfig
 };
 
 const StageConfig stages[] = {
-    {3, 3}, // Stage 1
-    {5, 5}, // Stage 2
-    {5, 5}, // Stage 3
-    {5, 5}, // Stage 4
-    {5, 5}  // Stage 5
+    {5, 3}, // Stage 1
+    {7, 5}, // Stage 2
+    {7, 5}, // Stage 3
+    {7, 5}, // Stage 4
+    {7, 5}, // Stage 5
+    {7, 5}, // Stage 6
+    {7, 5}  // Stage 7
 };
 const int stageCount = sizeof(stages) / sizeof(stages[0]);
 int currentStageIndex = 0;
 int currentStageRotationQuarter = 0;
-int tileRotationQuarter[5][5];
+int tileRotationQuarter[MAX_STAGE_HEIGHT][MAX_STAGE_WIDTH];
 
 int cursorX = 0;
 int cursorY = 0;
 int pochaccoX = 1;
 int pochaccoY = 1;
+int stage6MoveCount = 0;
 
 unsigned long stageStartMs = 0;
 unsigned long stageElapsedMs = 0;
@@ -136,11 +143,21 @@ bool isStage5()
   return currentStageIndex == 4;
 }
 
+bool isStage6()
+{
+  return currentStageIndex == 5;
+}
+
+bool isStage7()
+{
+  return currentStageIndex == 6;
+}
+
 void setupStageTileRotations()
 {
-  for (int y = 0; y < 5; y++)
+  for (int y = 0; y < MAX_STAGE_HEIGHT; y++)
   {
-    for (int x = 0; x < 5; x++)
+    for (int x = 0; x < MAX_STAGE_WIDTH; x++)
     {
       tileRotationQuarter[y][x] = 0;
     }
@@ -235,7 +252,7 @@ void randomizePochacco()
   {
     pochaccoX = random(0, w);
     pochaccoY = random(0, h);
-  } while (pochaccoX == 0 && pochaccoY == 0);
+  } while (pochaccoX == START_CURSOR_X && pochaccoY == START_CURSOR_Y);
 }
 
 bool moveCursor(int dx, int dy)
@@ -316,6 +333,27 @@ void drawPlay()
       if (x == cursorX && y == cursorY)
       {
         display.drawRect(tileX, tileY, tileSize, tileSize, SSD1306_WHITE);
+      }
+    }
+  }
+
+  if (isStage7())
+  {
+    int cx = offsetX + cursorX * tileSize + tileSize / 2;
+    int cy = offsetY + cursorY * tileSize + tileSize / 2;
+    int radius = (tileSize * 3) / 2;
+    int r2 = radius * radius;
+
+    for (int py = 0; py < SCREEN_HEIGHT; py++)
+    {
+      for (int px = 0; px < SCREEN_WIDTH; px++)
+      {
+        int dx = px - cx;
+        int dy = py - cy;
+        if ((dx * dx + dy * dy) > r2)
+        {
+          display.drawPixel(px, py, SSD1306_BLACK);
+        }
       }
     }
   }
@@ -418,8 +456,9 @@ void loop()
         currentStageRotationQuarter = 0;
       }
       setupStageTileRotations();
-      cursorX = 0;
-      cursorY = 0;
+      cursorX = START_CURSOR_X;
+      cursorY = START_CURSOR_Y;
+      stage6MoveCount = 0;
       randomizePochacco();
       stageStartMs = millis();
       enterState(STATE_PLAY);
@@ -430,6 +469,16 @@ void loop()
 
   if (state == STATE_PLAY)
   {
+    if (cursorX == pochaccoX && cursorY == pochaccoY)
+    {
+      stageElapsedMs = millis() - stageStartMs;
+      totalMs += stageElapsedMs;
+      playClearSe();
+      enterState(STATE_STAGE_CLEAR);
+      delay(30);
+      return;
+    }
+
     bool moved = false;
 
     if (digitalRead(BUTTON_UP) == LOW)
@@ -443,12 +492,14 @@ void loop()
 
     drawPlay();
 
-    if (cursorX == pochaccoX && cursorY == pochaccoY)
+    if (moved && isStage6())
     {
-      stageElapsedMs = millis() - stageStartMs;
-      totalMs += stageElapsedMs;
-      playClearSe();
-      enterState(STATE_STAGE_CLEAR);
+      stage6MoveCount++;
+      if (stage6MoveCount >= 2)
+      {
+        stage6MoveCount = 0;
+        randomizePochacco();
+      }
     }
 
     delay(moved ? 140 : 30);
