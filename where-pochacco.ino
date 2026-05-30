@@ -29,6 +29,14 @@ const uint8_t SHIMAENAGA_5X5_BMP[] PROGMEM = {
     0x15, 0x80, 0x0f, 0x00, 0x30, 0xc0, 0x40, 0x20, 0x4a, 0xa0, 0xc2, 0x30,
     0xc0, 0x30, 0xe0, 0x70, 0x60, 0x60, 0xb0, 0xd0, 0x80, 0x10, 0x60, 0x60};
 
+const uint8_t POCHACCO_5X5_INV_BMP[] PROGMEM = {
+    0x3b, 0x7f, 0x35, 0x4f, 0x98, 0xcf, 0xc7, 0x1f, 0xef, 0xbf, 0xdf, 0xdf,
+    0xdf, 0xdf, 0xdf, 0xdf, 0xf7, 0x7f, 0xbd, 0xef, 0xbf, 0xef, 0xcf, 0x9f};
+
+const uint8_t SHIMAENAGA_5X5_INV_BMP[] PROGMEM = {
+    0xea, 0x7f, 0xf0, 0xff, 0xcf, 0x3f, 0xbf, 0xdf, 0xb5, 0x5f, 0x3d, 0xcf,
+    0x3f, 0xcf, 0x1f, 0x8f, 0x9f, 0x9f, 0x4f, 0x2f, 0x7f, 0xef, 0x9f, 0x9f};
+
 enum GameState
 {
   STATE_TITLE,
@@ -50,10 +58,15 @@ struct StageConfig
 
 const StageConfig stages[] = {
     {3, 3}, // Stage 1
-    {5, 5}  // Stage 2
+    {5, 5}, // Stage 2
+    {5, 5}, // Stage 3
+    {5, 5}, // Stage 4
+    {5, 5}  // Stage 5
 };
 const int stageCount = sizeof(stages) / sizeof(stages[0]);
 int currentStageIndex = 0;
+int currentStageRotationQuarter = 0;
+int tileRotationQuarter[5][5];
 
 int cursorX = 0;
 int cursorY = 0;
@@ -79,12 +92,28 @@ int currentStageHeight()
 
 const uint8_t *currentPochaccoBmp()
 {
-  return currentStageIndex == 0 ? POCHACCO_3X3_BMP : POCHACCO_5X5_BMP;
+  if (currentStageIndex == 0)
+  {
+    return POCHACCO_3X3_BMP;
+  }
+  if (currentStageIndex == 3)
+  {
+    return POCHACCO_5X5_INV_BMP;
+  }
+  return POCHACCO_5X5_BMP;
 }
 
 const uint8_t *currentShimaenagaBmp()
 {
-  return currentStageIndex == 0 ? SHIMAENAGA_3X3_BMP : SHIMAENAGA_5X5_BMP;
+  if (currentStageIndex == 0)
+  {
+    return SHIMAENAGA_3X3_BMP;
+  }
+  if (currentStageIndex == 3)
+  {
+    return SHIMAENAGA_5X5_INV_BMP;
+  }
+  return SHIMAENAGA_5X5_BMP;
 }
 
 int currentBmpWidth()
@@ -95,6 +124,89 @@ int currentBmpWidth()
 int currentBmpHeight()
 {
   return currentStageIndex == 0 ? 20 : 12;
+}
+
+int currentRotationQuarter()
+{
+  return (currentStageIndex == 2 || currentStageIndex == 4) ? currentStageRotationQuarter : 0;
+}
+
+bool isStage5()
+{
+  return currentStageIndex == 4;
+}
+
+void setupStageTileRotations()
+{
+  for (int y = 0; y < 5; y++)
+  {
+    for (int x = 0; x < 5; x++)
+    {
+      tileRotationQuarter[y][x] = 0;
+    }
+  }
+
+  if (isStage5())
+  {
+    int w = currentStageWidth();
+    int h = currentStageHeight();
+    for (int y = 0; y < h; y++)
+    {
+      for (int x = 0; x < w; x++)
+      {
+        tileRotationQuarter[y][x] = random(1, 4);
+      }
+    }
+  }
+}
+
+bool readBitmapPixel(const uint8_t *bmp, int bmpW, int x, int y)
+{
+  int bytesPerRow = (bmpW + 7) / 8;
+  int byteIndex = y * bytesPerRow + (x / 8);
+  uint8_t b = pgm_read_byte(bmp + byteIndex);
+  int bitIndex = 7 - (x % 8);
+  return ((b >> bitIndex) & 0x01) != 0;
+}
+
+void drawBitmapRotated(int dstX, int dstY, const uint8_t *bmp, int bmpW, int bmpH, int quarterTurns)
+{
+  int turns = ((quarterTurns % 4) + 4) % 4;
+  if (turns == 0)
+  {
+    display.drawBitmap(dstX, dstY, bmp, bmpW, bmpH, SSD1306_WHITE);
+    return;
+  }
+
+  for (int sy = 0; sy < bmpH; sy++)
+  {
+    for (int sx = 0; sx < bmpW; sx++)
+    {
+      if (!readBitmapPixel(bmp, bmpW, sx, sy))
+      {
+        continue;
+      }
+
+      int dx = 0;
+      int dy = 0;
+      if (turns == 1)
+      {
+        dx = bmpH - 1 - sy;
+        dy = sx;
+      }
+      else if (turns == 2)
+      {
+        dx = bmpW - 1 - sx;
+        dy = bmpH - 1 - sy;
+      }
+      else
+      {
+        dx = sy;
+        dy = bmpW - 1 - sx;
+      }
+      display.drawPixel(dstX + dx, dstY + dy, SSD1306_WHITE);
+    }
+  }
 }
 
 void playMoveSe()
@@ -180,6 +292,7 @@ void drawPlay()
   const int bmpH = currentBmpHeight();
   const uint8_t *pochaccoBmp = currentPochaccoBmp();
   const uint8_t *shimaenagaBmp = currentShimaenagaBmp();
+  const int rotationQuarter = currentRotationQuarter();
 
   display.clearDisplay();
 
@@ -193,7 +306,12 @@ void drawPlay()
       const uint8_t *bmp = (x == pochaccoX && y == pochaccoY) ? pochaccoBmp : shimaenagaBmp;
       int bmpX = tileX + (tileSize - bmpW) / 2;
       int bmpY = tileY + (tileSize - bmpH) / 2;
-      display.drawBitmap(bmpX, bmpY, bmp, bmpW, bmpH, SSD1306_WHITE);
+      int drawRotation = rotationQuarter;
+      if (isStage5() && !(x == pochaccoX && y == pochaccoY))
+      {
+        drawRotation = tileRotationQuarter[y][x];
+      }
+      drawBitmapRotated(bmpX, bmpY, bmp, bmpW, bmpH, drawRotation);
 
       if (x == cursorX && y == cursorY)
       {
@@ -291,6 +409,15 @@ void loop()
     drawStageStart();
     if (millis() - stateEnterMs >= 700)
     {
+      if (currentStageIndex == 2 || currentStageIndex == 4)
+      {
+        currentStageRotationQuarter = random(1, 4);
+      }
+      else
+      {
+        currentStageRotationQuarter = 0;
+      }
+      setupStageTileRotations();
       cursorX = 0;
       cursorY = 0;
       randomizePochacco();
