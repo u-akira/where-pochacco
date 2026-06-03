@@ -2,6 +2,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include <Adafruit_NeoPixel.h>
 #include "config.h"
 
 #define SCREEN_WIDTH 128
@@ -51,6 +52,7 @@ enum GameState
 };
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_NeoPixel ledStrip(NUM_LEDS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 GameState state = STATE_TITLE;
 
@@ -84,8 +86,14 @@ unsigned long stageStartMs = 0;
 unsigned long stageElapsedMs = 0;
 unsigned long totalMs = 0;
 unsigned long stateEnterMs = 0;
+unsigned long ledGreenUntilMs = 0;
+bool ledGreenActive = false;
 
 bool titleShown = false;
+unsigned long resetHoldStartedMs = 0;
+bool resetHoldLatched = false;
+
+const unsigned long RESET_HOLD_MS = 1200;
 
 int currentStageWidth()
 {
@@ -238,6 +246,30 @@ void playClearSe()
   tone(BUZZER_PIN, 2200, 80);
 }
 
+void updateLedStrip()
+{
+  bool shouldBeGreen = ledGreenActive && millis() < ledGreenUntilMs;
+  uint32_t color = shouldBeGreen ? ledStrip.Color(0, 255, 0) : 0;
+
+  for (int i = 0; i < NUM_LEDS; i++)
+  {
+    ledStrip.setPixelColor(i, color);
+  }
+  ledStrip.show();
+
+  if (!shouldBeGreen)
+  {
+    ledGreenActive = false;
+  }
+}
+
+void flashLedGreen()
+{
+  ledGreenActive = true;
+  ledGreenUntilMs = millis() + 1000;
+  updateLedStrip();
+}
+
 void enterState(GameState next)
 {
   state = next;
@@ -298,11 +330,12 @@ void drawPlay()
 {
   const int stageWidth = currentStageWidth();
   const int stageHeight = currentStageHeight();
-  const int tileSizeW = SCREEN_WIDTH / stageWidth;
-  const int tileSizeH = SCREEN_HEIGHT / stageHeight;
+  const int tileGap = 1;
+  const int tileSizeW = (SCREEN_WIDTH - (stageWidth - 1) * tileGap) / stageWidth;
+  const int tileSizeH = (SCREEN_HEIGHT - (stageHeight - 1) * tileGap) / stageHeight;
   const int tileSize = tileSizeW < tileSizeH ? tileSizeW : tileSizeH;
-  const int gridPixelW = tileSize * stageWidth;
-  const int gridPixelH = tileSize * stageHeight;
+  const int gridPixelW = tileSize * stageWidth + (stageWidth - 1) * tileGap;
+  const int gridPixelH = tileSize * stageHeight + (stageHeight - 1) * tileGap;
   const int offsetX = (SCREEN_WIDTH - gridPixelW) / 2;
   const int offsetY = (SCREEN_HEIGHT - gridPixelH) / 2;
   const int bmpW = currentBmpWidth();
@@ -317,8 +350,8 @@ void drawPlay()
   {
     for (int x = 0; x < stageWidth; x++)
     {
-      int tileX = offsetX + x * tileSize;
-      int tileY = offsetY + y * tileSize;
+      int tileX = offsetX + x * (tileSize + tileGap);
+      int tileY = offsetY + y * (tileSize + tileGap);
 
       const uint8_t *bmp = (x == pochaccoX && y == pochaccoY) ? pochaccoBmp : shimaenagaBmp;
       int bmpX = tileX + (tileSize - bmpW) / 2;
@@ -341,7 +374,7 @@ void drawPlay()
   {
     int cx = offsetX + cursorX * tileSize + tileSize / 2;
     int cy = offsetY + cursorY * tileSize + tileSize / 2;
-    int radius = (tileSize * 3) / 2;
+    int radius = (tileSize * 3) / 2 + 3;
     int r2 = radius * radius;
 
     for (int py = 0; py < SCREEN_HEIGHT; py++)
@@ -404,6 +437,48 @@ bool anyArrowPressed()
          digitalRead(BUTTON_RIGHT) == LOW;
 }
 
+bool updateResetHold()
+{
+  if (!anyArrowPressed())
+  {
+    resetHoldStartedMs = 0;
+    resetHoldLatched = false;
+    return false;
+  }
+
+  if (resetHoldStartedMs == 0)
+  {
+    resetHoldStartedMs = millis();
+  }
+
+  if (!resetHoldLatched && millis() - resetHoldStartedMs >= RESET_HOLD_MS)
+  {
+    resetHoldLatched = true;
+    return true;
+  }
+
+  return false;
+}
+
+void resetToStage1()
+{
+  titleShown = false;
+  currentStageIndex = 0;
+  currentStageRotationQuarter = 0;
+  stage6MoveCount = 0;
+  totalMs = 0;
+  stageElapsedMs = 0;
+  ledGreenActive = false;
+  ledGreenUntilMs = 0;
+  resetHoldStartedMs = 0;
+  resetHoldLatched = false;
+  cursorX = START_CURSOR_X;
+  cursorY = START_CURSOR_Y;
+  ledStrip.clear();
+  ledStrip.show();
+  enterState(STATE_STAGE_START);
+}
+
 void setup()
 {
   pinMode(BUTTON_UP, INPUT_PULLUP);
@@ -411,6 +486,10 @@ void setup()
   pinMode(BUTTON_LEFT, INPUT_PULLUP);
   pinMode(BUTTON_RIGHT, INPUT_PULLUP);
   pinMode(BUZZER_PIN, OUTPUT);
+
+  ledStrip.begin();
+  ledStrip.clear();
+  ledStrip.show();
 
   Wire.begin(OLED_SDA, OLED_SCL);
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
@@ -469,10 +548,18 @@ void loop()
 
   if (state == STATE_PLAY)
   {
+    if (updateResetHold())
+    {
+      resetToStage1();
+      delay(30);
+      return;
+    }
+
     if (cursorX == pochaccoX && cursorY == pochaccoY)
     {
       stageElapsedMs = millis() - stageStartMs;
       totalMs += stageElapsedMs;
+      flashLedGreen();
       playClearSe();
       enterState(STATE_STAGE_CLEAR);
       delay(30);
@@ -490,6 +577,17 @@ void loop()
     else if (digitalRead(BUTTON_RIGHT) == LOW)
       moved = moveCursor(1, 0);
 
+    if (cursorX == pochaccoX && cursorY == pochaccoY)
+    {
+      stageElapsedMs = millis() - stageStartMs;
+      totalMs += stageElapsedMs;
+      flashLedGreen();
+      playClearSe();
+      enterState(STATE_STAGE_CLEAR);
+      delay(30);
+      return;
+    }
+
     drawPlay();
 
     if (moved && isStage6())
@@ -502,12 +600,21 @@ void loop()
       }
     }
 
+    updateLedStrip();
     delay(moved ? 140 : 30);
     return;
   }
 
   if (state == STATE_STAGE_CLEAR)
   {
+    if (updateResetHold())
+    {
+      resetToStage1();
+      delay(30);
+      return;
+    }
+
+    updateLedStrip();
     drawStageClear();
     if (millis() - stateEnterMs >= 1200)
     {
@@ -527,13 +634,46 @@ void loop()
 
   if (state == STATE_ALL_CLEAR)
   {
-    drawAllClear();
-    if (anyArrowPressed())
+    bool arrowPressed = anyArrowPressed();
+
+    if (!arrowPressed)
     {
-      currentStageIndex = 0;
-      totalMs = 0;
-      enterState(STATE_TITLE);
+      if (resetHoldStartedMs != 0 && !resetHoldLatched)
+      {
+        currentStageIndex = 0;
+        totalMs = 0;
+        titleShown = false;
+        ledGreenActive = false;
+        ledGreenUntilMs = 0;
+        ledStrip.clear();
+        ledStrip.show();
+        resetHoldStartedMs = 0;
+        resetHoldLatched = false;
+        enterState(STATE_TITLE);
+      }
+      else
+      {
+        resetHoldStartedMs = 0;
+        resetHoldLatched = false;
+      }
+      delay(30);
+      return;
     }
+
+    if (resetHoldStartedMs == 0)
+    {
+      resetHoldStartedMs = millis();
+    }
+
+    if (!resetHoldLatched && millis() - resetHoldStartedMs >= RESET_HOLD_MS)
+    {
+      resetToStage1();
+      delay(30);
+      return;
+    }
+
+    updateLedStrip();
+    drawAllClear();
     delay(30);
   }
 }

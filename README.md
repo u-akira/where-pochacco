@@ -4,10 +4,14 @@
 `where-pochacco` は、OLED 画面に表示されたキャラクターの中から `pochacco` を見つけるタイムアタックゲームです。  
 カーソルを4方向ボタンで動かし、`pochacco` の位置に合わせるとステージクリアになります。
 
-- ステージ数: 3
+- ステージ数: 7
 - ステージ1: `3x3`
-- ステージ2: `5x5`
-- ステージ3: `5x5`（キャラクター画像を `90/180/270` 度回転）
+- ステージ2: `7x5`
+- ステージ3: `7x5`（キャラクター画像を `90/180/270` 度回転）
+- ステージ4: `7x5`（`pochacco` と `shimaenaga` が反転画像）
+- ステージ5: `7x5`（背景の各マスがランダム回転）
+- ステージ6: `7x5`（2回移動するごとに `pochacco` が再配置）
+- ステージ7: `7x5`（カーソル周辺だけが見える演出）
 - クリア条件: カーソル位置と `pochacco` の位置が一致
 - スコア: 各ステージのクリア時間合計（短いほど良い）
 
@@ -63,6 +67,11 @@ arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32C3 --output-dir .arduino-build 
 arduino-cli upload -p <PORT> --fqbn esp32:esp32:XIAO_ESP32C3 where-pochacco.ino
 ```
 
+## Wokwi
+共有URL:
+
+https://wokwi.com/projects/465726079043421185
+
 ## ゲームの操作方法
 - タイトル画面
   - いずれかの方向ボタンを押すとゲーム開始
@@ -71,9 +80,14 @@ arduino-cli upload -p <PORT> --fqbn esp32:esp32:XIAO_ESP32C3 where-pochacco.ino
   - `DOWN`: 下へ1マス移動
   - `LEFT`: 左へ1マス移動
   - `RIGHT`: 右へ1マス移動
+  - 方向ボタンの長押し: `stage 1` に戻る
   - 枠線で表示されるカーソルを `pochacco` に合わせるとクリア
 - クリア画面
-  - いずれかの方向ボタンで次ステージへ進行
+  - 自動で次ステージへ進行
+- `ALL CLEAR` 画面
+  - 方向ボタンの短押し: タイトルへ戻る
+  - 方向ボタンの長押し: `stage 1` に戻る
 
+## 謝辞
 ドット絵の作成には以下のドット絵ディタを利用しています。
 https://yugi-tech-lab.github.io/BM-GamePod/sw/tools/oled_dot_editor.html
